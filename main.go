@@ -14,6 +14,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type viewState uint
+
+const (
+	listView viewState = iota
+	detailView
+)
+
 var (
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
 
@@ -60,10 +67,12 @@ func newListKeyMap() *listKeyMap {
 }
 
 // content of the entire model
+// TODO: add detailed view as its own model (maybe 2nd file?)
 type model struct {
 	list  list.Model
 	keys  *listKeyMap
 	hosts []SSHHost
+	view  viewState
 }
 
 func (m model) Init() tea.Cmd {
@@ -120,7 +129,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return appStyle.Render(m.list.View())
+	var details string
+	index := m.list.Index()
+	if index >= 0 && index < len(m.hosts) {
+		h := m.hosts[index]
+		// TODO: Replace with good looking input mask
+		details = fmt.Sprintf(
+			"Host: %s\nHostName: %s\nUser: %s\nDescription: %s",
+			h.Host, h.HostName, h.User, h.Desc,
+		)
+	} else {
+		details = "No item selected"
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Center, appStyle.Render(m.list.View()), lipgloss.NewStyle().MarginLeft(2).Render(details))
 }
 
 type Config struct {
@@ -187,6 +208,7 @@ func newModel() model {
 			listKeys.saveConfig,
 		}
 	}
+
 	return model{
 		list:  hosts,
 		keys:  listKeys,
