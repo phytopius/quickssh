@@ -2,34 +2,129 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
-
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	ssh_config "github.com/kevinburke/ssh_config"
+	"github.com/charmbracelet/lipgloss"
 )
+
+var (
+	appStyle = lipgloss.NewStyle().Padding(1, 2)
+
+	titleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(lipgloss.Color("#25A065")).
+			Padding(0, 1)
+
+	statusMessageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"}).
+				Render
+)
+
+func (i SSHHost) Title() string { return i.Host }
+func (i SSHHost) Description() string {
+	nicedescription := i.Desc + " " + strings.Join(i.Tags, "<")
+	return nicedescription
+}
+func (i SSHHost) FilterValue() string { return i.Host }
+
+// keys
+type listKeyMap struct {
+	insertItem key.Binding
+	deleteItem key.Binding
+	saveConfig key.Binding
+}
+
+// information for new keys
+func newListKeyMap() *listKeyMap {
+	return &listKeyMap{
+		insertItem: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "add item"),
+		),
+		deleteItem: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "delete item"),
+		),
+		saveConfig: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "save config"),
+		),
+	}
+}
+
+// content of the entire model
+type model struct {
+	list  list.Model
+	keys  *listKeyMap
+	hosts []SSHHost
+}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+		switch {
+
+		case key.Matches(msg, m.keys.insertItem):
+			newHost := generateRandomHost()
+			m.hosts = append(m.hosts, newHost)
+			insCmd := m.list.InsertItem(0, newHost)
+			statusCmd := m.list.NewStatusMessage(statusMessageStyle("Added " + newHost.HostName))
+			return m, tea.Batch(insCmd, statusCmd)
+
+		case key.Matches(msg, m.keys.deleteItem):
+			currentItem := m.list.SelectedItem().(SSHHost)
+			// remove from item list
+			m.list.RemoveItem(m.list.Index())
+			// remove from hsots list for config save
+			newHosts := make([]SSHHost, 0, len(m.hosts))
+			for _, p := range m.hosts {
+				if p.Host != currentItem.Host {
+					newHosts = append(newHosts, p)
+				}
+			}
+			m.hosts = newHosts
+			return m, tea.Batch()
+
+		case key.Matches(msg, m.keys.saveConfig):
+			config := &Config{Hosts: m.hosts}
+			saveConfig(config)
+			statusCmd := m.list.NewStatusMessage("Saved Config")
+			return m, tea.Batch(statusCmd)
+		}
+
+	case tea.WindowSizeMsg:
+		h, v := appStyle.GetFrameSize()
+		m.list.SetSize(msg.Width-h, msg.Height-v)
+	}
+
+	newListModel, cmd := m.list.Update(msg)
+	m.list = newListModel
+	cmds = append(cmds, cmd)
+	return m, tea.Batch(cmds...)
+}
+
+func (m model) View() string {
+	return appStyle.Render(m.list.View())
+}
 
 type Config struct {
 	Hosts []SSHHost `toml:"hosts"`
-}
-
-type SSHHost struct {
-	Host         string   `toml:"host"`
-	HostName     string   `toml:"hostname"`
-	User         string   `toml:"user"`
-	ForwardAgent bool     `toml:"forward_agent"`
-	Tags         []string `tomo:"ags"`
-	Description  string   `toml:"description"`
-}
-
-type sshConfigEntry struct {
-	Host         string
-	HostName     string
-	User         string
-	ForwardAgent string
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -40,7 +135,9 @@ func loadConfig(path string) (*Config, error) {
 	return &config, nil
 }
 
-func saveConfig(path string, config *Config) error {
+func saveConfig(config *Config) error {
+	dir, _ := os.Getwd()
+	path := filepath.Join(dir, ".mysshconfig.toml")
 	f, err := os.Create(path)
 	if err != nil {
 		return err
@@ -51,232 +148,25 @@ func saveConfig(path string, config *Config) error {
 	return encoder.Encode(config)
 }
 
-type model struct {
-	mode        string
-	entries     []SSHHost
-	choices     []string
-	cursor      int
-	selected    map[int]struct{}
-	inputBuffer []string
-	inputField  int
-	isAdding    bool
+type SSHHost struct {
+	Host         string   `toml:"host"`
+	HostName     string   `toml:"hostname"`
+	User         string   `toml:"user"`
+	ForwardAgent bool     `toml:"forward_agent"`
+	Tags         []string `toml:"tags"`
+	Desc         string   `toml:"description"`
 }
 
-var fields = []string{"Host", "HostName", "User", "ForwardAgent", "Tags", "Description"}
-
-func initialModel(config Config) model {
-	var choices []string
-	for _, entry := range config.Hosts {
-		choices = append(choices, entry.Host)
+func toItems(hosts []SSHHost) []list.Item {
+	var items []list.Item
+	for _, h := range hosts {
+		items = append(items, h)
 	}
-	return model{
-		entries:     config.Hosts,
-		choices:     choices,
-		selected:    make(map[int]struct{}),
-		inputBuffer: make([]string, len(fields)),
-		isAdding:    false,
-	}
+	return items
 }
 
-func (m model) Init() tea.Cmd {
-	return nil
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.isAdding {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.Type {
-			case tea.KeyEnter:
-				m.inputField++
-				if m.inputField >= len(fields) {
-					// Done, construct new SSHHost
-					newHost := SSHHost{
-						Host:         m.inputBuffer[0],
-						HostName:     m.inputBuffer[1],
-						User:         m.inputBuffer[2],
-						ForwardAgent: m.inputBuffer[3] == "true",
-						Tags:         []string{}, // you could support this later
-						Description:  m.inputBuffer[5],
-					}
-					m.entries = append(m.entries, newHost)
-					m.choices = append(m.choices, newHost.Host)
-					m.isAdding = false
-
-					// Reload and Save
-					dir, _ := os.Getwd()
-					configPath := filepath.Join(dir, ".mysshconfig.toml")
-					cfg := &Config{Hosts: m.entries}
-					saveConfig(configPath, cfg)
-				}
-			case tea.KeyBackspace:
-				if len(m.inputBuffer[m.inputField]) > 0 {
-					m.inputBuffer[m.inputField] = m.inputBuffer[m.inputField][:len(m.inputBuffer[m.inputField])-1]
-				}
-			default:
-				m.inputBuffer[m.inputField] += msg.String()
-			}
-		}
-		return m, nil
-	} else {
-		switch msg := msg.(type) {
-		// Is it a key press?
-		case tea.KeyMsg:
-
-			// Cool, what was the actual key pressed?
-			switch msg.String() {
-
-			// These keys should exit the program.
-			case "ctrl+c", "q":
-				return m, tea.Quit
-
-			// The "up" and "k" keys move the cursor up
-			case "up", "k":
-				if m.cursor > 0 {
-					m.cursor--
-				}
-
-			// The "down" and "j" keys move the cursor down
-			case "down", "j":
-				if m.cursor < len(m.choices)-1 {
-					m.cursor++
-				}
-
-			case "a":
-				m.isAdding = true
-				m.inputBuffer = make([]string, len(fields))
-				m.inputField = 0
-
-			case "d":
-				if len(m.entries) > 0 {
-					index := m.cursor
-					m.entries = append(m.entries[:index], m.entries[index+1:]...)
-					m.choices = append(m.choices[:index], m.choices[index+1:]...)
-
-					// Adjust cursor if necessary
-					if m.cursor >= len(m.entries) && m.cursor > 0 {
-						m.cursor--
-					}
-
-					// Save updated config to file
-					dir, _ := os.Getwd()
-					configPath := filepath.Join(dir, ".mysshconfig.toml")
-					saveErr := saveConfig(configPath, &Config{Hosts: m.entries})
-					if saveErr != nil {
-						fmt.Fprintf(os.Stderr, "Error saving config: %v\n", saveErr)
-					}
-				}
-			// The "enter" key and the spacebar (a literal space) toggle
-			// the selected state for the item that the cursor is pointing at.
-			case "enter", " ":
-				var entry SSHHost
-				if len(m.selected) > 0 {
-					for i := range m.selected {
-						entry = m.entries[i]
-						break
-					}
-				} else {
-					entry = m.entries[m.cursor]
-				}
-
-				connectArg := entry.User + "@" + entry.HostName
-				fmt.Println("Connection args are: " + connectArg)
-				cmd := exec.Command("ssh", connectArg)
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-
-				tea.Quit()
-				err := cmd.Run()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error running ssh: %v\n", err)
-				}
-
-				os.Exit(0)
-			}
-		}
-
-		// Return the updated model to the Bubble Tea runtime for processing.
-		// Note that we're not returning a command.
-		return m, nil
-	}
-}
-
-func (m model) View() string {
-	if m.isAdding {
-		s := fmt.Sprintf("Adding new SSH host (%s):\n\n", fields[m.inputField])
-		s += m.inputBuffer[m.inputField]
-		s += "\n\nPress Enter to confirm field, Backspace to delete, q to quit."
-		return s
-	}
-
-	// The header
-	s := "What server do you want to connect to\n\n"
-
-	// Iterate over our choices
-	for i, choice := range m.choices {
-
-		// Is the cursor pointing at this choice?
-		cursor := " " // no cursor
-		if m.cursor == i {
-			cursor = ">" // cursor!
-		}
-
-		// Is this choice selected?
-		checked := " " // not selected
-		if _, ok := m.selected[i]; ok {
-			checked = "x" // selected!
-		}
-
-		// Render the row
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
-	}
-
-	// The footer
-	s += "\nPress q to quit.\n"
-
-	// Send the UI for rendering
-	return s
-}
-
-func ParseSSH() []sshConfigEntry {
-	var entries []sshConfigEntry
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
-		os.Exit(1)
-	}
-	file, err := os.Open(filepath.Join(homeDir, ".ssh", "config"))
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	cfg, err := ssh_config.Decode(file)
-	if err != nil {
-		panic(err)
-	}
-
-	seen := make(map[string]bool)
-	for _, node := range cfg.Hosts {
-		for _, pattern := range node.Patterns {
-			if pattern.String() != "*" && !seen[pattern.String()] {
-				seen[pattern.String()] = true
-				entry := sshConfigEntry{
-					Host:         pattern.String(),
-					HostName:     ssh_config.Get(pattern.String(), "HostName"),
-					User:         ssh_config.Get(pattern.String(), "User"),
-					ForwardAgent: ssh_config.Get(pattern.String(), "ForwardAgent"),
-				}
-
-				entries = append(entries, entry)
-			}
-		}
-	}
-	return entries
-}
-
-func main() {
+func newModel() model {
+	listKeys := newListKeyMap()
 	dir, _ := os.Getwd()
 	configPath := filepath.Join(dir, ".mysshconfig.toml")
 
@@ -286,9 +176,42 @@ func main() {
 		fmt.Printf("Error loading config: %v\n", err)
 	}
 
-	p := tea.NewProgram(initialModel(*cfg))
+	items := toItems(cfg.Hosts)
+	hosts := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	hosts.Title = "Available Hosts"
+	hosts.Styles.Title = titleStyle
+	hosts.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listKeys.deleteItem,
+			listKeys.insertItem,
+			listKeys.saveConfig,
+		}
+	}
+	return model{
+		list:  hosts,
+		keys:  listKeys,
+		hosts: cfg.Hosts,
+	}
+}
+
+func generateRandomHost() SSHHost {
+	newHost := SSHHost{
+		Host:         string(rand.Intn(100)),
+		HostName:     string(rand.Intn(100)),
+		User:         string(rand.Intn(100)),
+		ForwardAgent: true,
+		Tags:         []string{},
+		Desc:         string(rand.Intn(100)),
+	}
+
+	return newHost
+}
+
+func main() {
+	p := tea.NewProgram(newModel(), tea.WithAltScreen())
+
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
+		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
 }
