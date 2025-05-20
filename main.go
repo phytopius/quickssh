@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -32,8 +33,39 @@ var (
 	statusMessageStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"}).
 				Render
+
+	configFilePath string
 )
 
+func InitConfigPath() error {
+	if runtime.GOOS != "windows" {
+		// Optional: set a different default for non-Windows, or skip
+		return nil
+	}
+
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		return fmt.Errorf("LOCALAPPDATA environment variable is not set")
+	}
+
+	configDir := filepath.Join(localAppData, "quickssh")
+	configFilePath = filepath.Join(configDir, ".config")
+
+	err := os.MkdirAll(configDir, 0o755)
+	if err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
+		f, err := os.Create(configFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to create config file: %w", err)
+		}
+		defer f.Close()
+	}
+
+	return nil
+}
 func (i SSHHost) Title() string { return i.Host }
 func (i SSHHost) Description() string {
 	nicedescription := i.Desc + " " + strings.Join(i.Tags, "<")
@@ -148,18 +180,16 @@ type Config struct {
 	Hosts []SSHHost `toml:"hosts"`
 }
 
-func loadConfig(path string) (*Config, error) {
+func loadConfig() (*Config, error) {
 	var config Config
-	if _, err := toml.DecodeFile(path, &config); err != nil {
+	if _, err := toml.DecodeFile(configFilePath, &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
 func saveConfig(config *Config) error {
-	dir, _ := os.Getwd()
-	path := filepath.Join(dir, ".mysshconfig.toml")
-	f, err := os.Create(path)
+	f, err := os.Create(configFilePath)
 	if err != nil {
 		return err
 	}
@@ -188,11 +218,9 @@ func toItems(hosts []SSHHost) []list.Item {
 
 func newModel() model {
 	listKeys := newListKeyMap()
-	dir, _ := os.Getwd()
-	configPath := filepath.Join(dir, ".mysshconfig.toml")
 
 	// Load Config
-	cfg, err := loadConfig(configPath)
+	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 	}
@@ -230,6 +258,7 @@ func generateRandomHost() SSHHost {
 }
 
 func main() {
+	InitConfigPath()
 	p := tea.NewProgram(newModel(), tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {
