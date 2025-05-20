@@ -59,3 +59,4 @@ scoops:
     repository:
       owner: phytopius
       name: scoop-bucket
+    github_token: { { .Env.GORELEASER_PAT } }
