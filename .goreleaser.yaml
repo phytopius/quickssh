@@ -51,12 +51,17 @@ release:
     ---
 
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
-
-scoop:
-  bucket:
-    name: phytopius/scoop-bucket
-    token: "{{ .Env.GORELEASER_PAT }}"
-  homepage: https://github.com/phytopius/quickssh
-  description: A manager for your ssh connections
-  post_install:
-    - Write-Host "See bottom of page for keybinds"
+scoops:
+  - # Name of the recipe
+    #
+    # Default: the project name.
+    # Templates: allowed.
+    name: quickssh
+    homepage: https://github.com/phytopius/quickssh
+    description: A manager for your ssh connections
+    license: MIT
+    post_install: ["Write-Host 'See bottom of page for keybinds'"]
+    repository:
+      name: scoop-bucket
+      branch: main
+      token: "{{ .Env.GORELEASER_PAT }}"

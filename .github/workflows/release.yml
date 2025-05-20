@@ -7,7 +7,7 @@ on:
 
 jobs:
   release:
-    name: Build and Release Windows Binary
+    name: Build and Releae
     runs-on: ubuntu-latest
 
     steps:
@@ -17,15 +17,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
-
-      - name: Install Goreleaser
-        run: |
-          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
-          sudo apt update
-          sudo apt install goreleaser
+          go-version: stable
 
       - name: Run Goreleaser
-        run: goreleaser release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
