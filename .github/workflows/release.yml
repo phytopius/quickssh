@@ -34,4 +34,4 @@ jobs:
         with:
           files: build/quickssh-windows-amd64.zip
         env:
-          GITHUB_TOKEN: ${{ secret.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
