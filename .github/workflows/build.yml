@@ -1,0 +1,31 @@
+# .github/workflows/build.yml
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build Windows binary
+        run: |
+          mkdir -p build
+          GOOS=windows GOARCH=amd64 go build -o build/quickssh.exe
+
+      - name: Zip the binary
+        run: |
+          cd build
+          zip quickssh-windows-amd64.zip quickssh.exe
