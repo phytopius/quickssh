@@ -20,7 +20,7 @@ jobs:
           go-version: "1.24"
 
       - name: Install Goreleaser
-        run: go install github.com/goreleaser/goreleaser/v2@ubuntu-latest
+        run: go install github.com/goreleaser/goreleaser/v2@latest
 
       - name: Run Goreleaser
         run: goreleaser release --rm-dist
