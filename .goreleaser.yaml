@@ -51,3 +51,11 @@ release:
     ---
 
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+
+scoops:
+  - name: quickssh
+    description: "A management tool for ssh connections"
+    homepage: "https://github.com/phytopius/quickssh"
+    repository:
+      owner: phytopius
+      name: scoop-bucket
