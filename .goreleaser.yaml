@@ -62,6 +62,7 @@ scoops:
     license: MIT
     post_install: ["Write-Host 'See bottom of page for keybinds'"]
     repository:
+      owner: phytopius
       name: scoop-bucket
       branch: main
       token: "{{ .Env.GORELEASER_PAT }}"
