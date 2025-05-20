@@ -52,11 +52,11 @@ release:
 
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
 
-scoops:
-  - name: quickssh
-    description: "A management tool for ssh connections"
-    homepage: "https://github.com/phytopius/quickssh"
-    repository:
-      owner: phytopius
-      name: scoop-bucket
-    github_token: { { .Env.GORELEASER_PAT } }
+scoop:
+  bucket:
+    name: phytopius/scoop-bucket
+    token: "{{ .Env.GORELEASER_PAT }}"
+  homepage: https://github.com/phytopius/quickssh
+  description: A manager for your ssh connections
+  post_install:
+    - Write-Host "See bottom of page for keybinds"
